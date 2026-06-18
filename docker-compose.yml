@@ -1,0 +1,115 @@
+version: "3.9"
+
+networks:
+  sandbox:
+    driver: bridge
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    networks:
+      - sandbox
+    healthcheck:
+      # TCP check — sqlcmd path varies across mssql image versions
+      test: ["CMD-SHELL", "echo '' > /dev/tcp/localhost/1433 2>/dev/null && echo healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    networks:
+      - sandbox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - sandbox
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  eshop:
+    build: ./eshop
+    container_name: eshop
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    ports:
+      - "5001:80"
+    environment:
+      ASPNETCORE_URLS: "http://+:80"
+      ConnectionStrings__CatalogConnection: "Server=sqlserver;Database=Microsoft.eShopOnWeb.CatalogDb;User=sa;Password=${SQLSERVER_SA_PASSWORD};TrustServerCertificate=true"
+      ConnectionStrings__IdentityConnection: "Server=sqlserver;Database=Microsoft.eShopOnWeb.Identity;User=sa;Password=${SQLSERVER_SA_PASSWORD};TrustServerCertificate=true"
+    networks:
+      - sandbox
+    volumes:
+      - ./output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  medplum:
+    build: ./medplum
+    container_name: medplum
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8103:8103"
+    environment:
+      MEDPLUM_DATABASE_HOST: postgres
+      MEDPLUM_DATABASE_PORT: 5432
+      MEDPLUM_DATABASE_USERNAME: ${POSTGRES_USER}
+      MEDPLUM_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      MEDPLUM_DATABASE_DBNAME: ${POSTGRES_DB}
+      MEDPLUM_REDIS_HOST: redis
+      MEDPLUM_REDIS_PORT: 6379
+    networks:
+      - sandbox
+    volumes:
+      - ./output:/output
+    deploy:
+      resources:
+        limits:
+          memory: 1g
