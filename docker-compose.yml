@@ -3,6 +3,9 @@ version: "3.9"
 networks:
   sandbox:
     driver: bridge
+  agent-net:
+    driver: bridge
+    internal: true    # agent-runner has no internet egress via this network
 
 services:
   sqlserver:
@@ -82,8 +85,16 @@ services:
       Aspire__Seq__ServerUrl: "http://localhost:5341"
     networks:
       - sandbox
+      - agent-net    # exposed to agent-runner; databases stay sandbox-only
     volumes:
       - ./output:/output
+    healthcheck:
+      # TCP check — confirms ASP.NET Core port is listening after startup
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/80'"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 90s    # allows time for tests + dotnet startup
     deploy:
       resources:
         limits:
@@ -109,9 +120,42 @@ services:
       MEDPLUM_REDIS_PORT: 6379
     networks:
       - sandbox
+      - agent-net    # exposed to agent-runner; databases stay sandbox-only
     volumes:
       - ./output:/output
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8103/healthcheck > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 180s   # allows time for node startup + migrations + jest tests
     deploy:
       resources:
         limits:
           memory: 1g
+
+  agent-runner:
+    build: ./agent-runner
+    container_name: agent-runner
+    depends_on:
+      eshop:
+        condition: service_healthy
+      medplum:
+        condition: service_healthy
+    environment:
+      ESHOP_BASE_URL: "http://eshop:80"
+      MEDPLUM_BASE_URL: "http://medplum:8103"
+    networks:
+      - agent-net    # can reach eshop + medplum; cannot reach sandbox DBs or internet
+    volumes:
+      - ./output:/output
+    read_only: true          # overlay FS is read-only; only /tmp and /output are writable
+    tmpfs:
+      - /tmp               # writable scratch space for agent
+    security_opt:
+      - no-new-privileges:true    # blocks setuid/setgid privilege escalation
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"           # cap runaway agent loops
+          memory: 256m
