@@ -6,7 +6,8 @@ networks:
 
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    # azure-sql-edge has native ARM64 support; mssql/server:2022 segfaults under QEMU on Apple Silicon
+    image: mcr.microsoft.com/azure-sql-edge:latest
     container_name: sqlserver
     environment:
       SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
@@ -16,8 +17,7 @@ services:
     networks:
       - sandbox
     healthcheck:
-      # TCP check — sqlcmd path varies across mssql image versions
-      test: ["CMD-SHELL", "echo '' > /dev/tcp/localhost/1433 2>/dev/null && echo healthy || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1433'"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -76,8 +76,10 @@ services:
       - "5001:80"
     environment:
       ASPNETCORE_URLS: "http://+:80"
-      ConnectionStrings__CatalogConnection: "Server=sqlserver;Database=Microsoft.eShopOnWeb.CatalogDb;User=sa;Password=${SQLSERVER_SA_PASSWORD};TrustServerCertificate=true"
-      ConnectionStrings__IdentityConnection: "Server=sqlserver;Database=Microsoft.eShopOnWeb.Identity;User=sa;Password=${SQLSERVER_SA_PASSWORD};TrustServerCertificate=true"
+      ASPNETCORE_ENVIRONMENT: "Docker"
+      UseOnlyInMemoryDatabase: "true"
+      Aspire__Seq__DisableHealthChecks: "true"
+      Aspire__Seq__ServerUrl: "http://localhost:5341"
     networks:
       - sandbox
     volumes:

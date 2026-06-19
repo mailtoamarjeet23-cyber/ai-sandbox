@@ -22,4 +22,5 @@ cat > /app/medplum.config.json << EOF
 EOF
 
 echo "[medplum] Starting server (migrations run automatically on start)..."
-exec node packages/server/dist/index.js /app/medplum.config.json
+# 'file' tells the server to load medplum.config.json from the working directory
+exec node packages/server/dist/index.js file:/app/medplum.config.json
