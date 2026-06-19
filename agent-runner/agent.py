@@ -11,6 +11,13 @@ import time
 import requests
 from datetime import datetime, timezone
 
+# Drop from root to UID 1000 (agent / users) immediately — before any work.
+# The entrypoint runs as root to fix /output ownership, then exec's this script.
+if os.getuid() == 0:
+    os.setgroups([])
+    os.setgid(100)   # users group
+    os.setuid(1000)
+
 ESHOP_BASE   = os.getenv("ESHOP_BASE_URL",  "http://eshop:80")
 MEDPLUM_BASE = os.getenv("MEDPLUM_BASE_URL", "http://medplum:8103")
 AUDIT_LOG    = "/output/agent_audit.log"
